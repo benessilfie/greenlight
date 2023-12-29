@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"greenlight.essilfie.co.uk/internal/data"
+	"greenlight.essilfie.co.uk/internal/validator"
 )
 
 func (app *application) createMovie(w http.ResponseWriter, r *http.Request) {
@@ -19,6 +20,20 @@ func (app *application) createMovie(w http.ResponseWriter, r *http.Request) {
 	err := app.readJSON(w, r, &input)
 	if err != nil {
 		app.badRequestResponse(w, r, err)
+		return
+	}
+
+	movie := &data.Movie{
+		Title:   input.Title,
+		Year:    input.Year,
+		Runtime: input.Runtime,
+		Genres:  input.Genres,
+	}
+
+	v := validator.New()
+
+	if data.ValidateMovie(v, movie); !v.Valid() {
+		app.failedValidationResponse(w, r, v.Errors)
 		return
 	}
 
