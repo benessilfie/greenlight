@@ -1,9 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"greenlight.essilfie.co.uk/internal/data"
 	"greenlight.essilfie.co.uk/internal/validator"
@@ -37,7 +37,20 @@ func (app *application) createMovie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(w, "%+v\n", input)
+	err = app.models.Movies.Create(movie)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+		return
+	}
+
+	headers := make(http.Header)
+	headers.Set("Location", fmt.Sprintf("/v1/movies/%d", movie.ID))
+
+	err = app.writeJSON(w, http.StatusCreated, envelope{"movie": movie}, headers)
+	if err != nil {
+		app.serverErrorResponse(w, r, err)
+	}
+	// fmt.Fprintf(w, "%+v\n", input)
 }
 
 func (app *application) showMovie(w http.ResponseWriter, r *http.Request) {
@@ -47,15 +60,15 @@ func (app *application) showMovie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	movie := data.Movie{
-		ID:        id,
-		Title:     "Avengers Endgame",
-		Year:      2019,
-		Genres:    []string{"action", "science fiction", "drama", "adventure"},
-		Runtime:   182,
-		Version:   1,
-		CreatedAt: time.Now(),
-		UpdateAt:  time.Now(),
+	movie, err := app.models.Movies.Get(id)
+	if err != nil {
+		switch {
+		case errors.Is(err, data.ErrRecordNotFound):
+			app.notFoundResponse(w, r)
+		default:
+			app.serverErrorResponse(w, r, err)
+		}
+		return
 	}
 
 	err = app.writeJSON(w, http.StatusOK, envelope{"movie": movie}, nil)
