@@ -1,8 +1,11 @@
 package data
 
 import (
+	"database/sql"
+	"errors"
 	"time"
 
+	"github.com/lib/pq"
 	"greenlight.essilfie.co.uk/internal/validator"
 )
 
@@ -14,7 +17,7 @@ type Movie struct {
 	Runtime   Runtime   `json:"runtime,omitempty"`
 	Version   int32     `json:"version,omitempty,string"`
 	CreatedAt time.Time `json:"created_at"`
-	UpdateAt  time.Time `json:"-"`
+	UpdateAt  time.Time `json:"updated_at"`
 }
 
 func ValidateMovie(v *validator.Validator, movie *Movie) {
@@ -32,4 +35,81 @@ func ValidateMovie(v *validator.Validator, movie *Movie) {
 	v.Check(len(movie.Genres) >= 1, "genres", "must contain at least 1 genre")
 	v.Check(len(movie.Genres) <= 5, "genres", "must not contain more than 5 genres")
 	v.Check(validator.Unique(movie.Genres), "genres", "must not contain duplicate values")
+}
+
+type MovieModel struct {
+	DB *sql.DB
+}
+
+func (m MovieModel) Create(movie *Movie) error {
+	query := `
+	    INSERT INTO movies (title, year, runtime, genres)
+	    VALUES ($1, $2, $3, $4)
+	    RETURNING id, version, created_at, updated_at
+	`
+
+	args := []any{movie.Title, movie.Year, movie.Runtime, pq.Array(movie.Genres)}
+	return m.DB.QueryRow(query, args...).Scan(&movie.ID, &movie.Version, &movie.CreatedAt, &movie.UpdateAt)
+}
+
+func (m MovieModel) Get(id int64) (*Movie, error) {
+	if id < 1 {
+		return nil, ErrRecordNotFound
+	}
+
+	query := `
+	    SELECT id, title, year, runtime, genres, version, created_at, updated_at
+	    FROM movies
+	    WHERE id = $1
+	`
+
+	var movie Movie
+
+	err := m.DB.QueryRow(query, id).Scan(
+		&movie.ID,
+		&movie.Title,
+		&movie.Year,
+		&movie.Runtime,
+		pq.Array(&movie.Genres),
+		&movie.Version,
+		&movie.CreatedAt,
+		&movie.UpdateAt,
+	)
+
+	if err != nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return nil, ErrRecordNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	return &movie, nil
+}
+
+func (m MovieModel) Update(movie *Movie) error {
+	return nil
+}
+
+func (m MovieModel) Delete(id int64) error {
+	return nil
+}
+
+type MockMovieModel struct{}
+
+func (m MockMovieModel) Create(movie *Movie) error {
+	return nil
+}
+
+func (m MockMovieModel) Get(id int64) (*Movie, error) {
+	return nil, nil
+}
+
+func (m MockMovieModel) Update(movie *Movie) error {
+	return nil
+}
+
+func (m MockMovieModel) Delete(id int64) error {
+	return nil
 }
