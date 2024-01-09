@@ -1,11 +1,13 @@
 package data
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"time"
 
 	"github.com/lib/pq"
+
 	"greenlight.essilfie.co.uk/internal/validator"
 )
 
@@ -49,7 +51,11 @@ func (m MovieModel) Create(movie *Movie) error {
 	`
 
 	args := []any{movie.Title, movie.Year, movie.Runtime, pq.Array(movie.Genres)}
-	return m.DB.QueryRow(query, args...).Scan(&movie.ID, &movie.Version, &movie.CreatedAt, &movie.UpdateAt)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	return m.DB.QueryRowContext(ctx, query, args...).Scan(&movie.ID, &movie.Version, &movie.CreatedAt, &movie.UpdateAt)
 }
 
 func (m MovieModel) Get(id int64) (*Movie, error) {
@@ -65,7 +71,10 @@ func (m MovieModel) Get(id int64) (*Movie, error) {
 
 	var movie Movie
 
-	err := m.DB.QueryRow(query, id).Scan(
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	err := m.DB.QueryRowContext(ctx, query, id).Scan(
 		&movie.ID,
 		&movie.Title,
 		&movie.Year,
@@ -91,7 +100,7 @@ func (m MovieModel) Update(movie *Movie) error {
 	query := `
 	    UPDATE movies
 	    SET title = $2, year = $3, runtime = $4, genres = $5, version = version + 1, updated_at = CURRENT_TIMESTAMP
-		  WHERE id = $1
+		  WHERE id = $1 AND version = $6
 	    RETURNING version, created_at, updated_at
 	`
 
@@ -101,8 +110,23 @@ func (m MovieModel) Update(movie *Movie) error {
 		movie.Year,
 		movie.Runtime,
 		pq.Array(movie.Genres),
+		movie.Version,
 	}
-	return m.DB.QueryRow(query, args...).Scan(&movie.Version, &movie.CreatedAt, &movie.UpdateAt)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	err := m.DB.QueryRowContext(ctx, query, args...).Scan(&movie.Version, &movie.CreatedAt, &movie.UpdateAt)
+	if err != nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return ErrEditConflict
+		default:
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (m MovieModel) Delete(id int64) error {
@@ -115,7 +139,10 @@ func (m MovieModel) Delete(id int64) error {
         WHERE id = $1
     `
 
-	result, err := m.DB.Exec(query, id)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	result, err := m.DB.ExecContext(ctx, query, id)
 	if err != nil {
 		return err
 	}
